@@ -53,6 +53,10 @@ import {
   canBuyAgain,
   downloadInvoice
 } from "../controllers/userControllers.js";
+import {
+  getUserRecommendations,
+  getSimilarProducts,
+} from "../controllers/recommendationController.js";
 import { decryptPassword } from "../utils/AES.js";
 import db from "../database/db.js";
 
@@ -139,5 +143,9 @@ router.get("/orders/invoice/:created_at", authMiddleware, downloadInvoice);
 
 //================= Mobile Login =================
 router.post("/log-fraud", logFraudAttempt);
+
+// ================= AI/ML RECOMMENDATIONS =================
+router.get("/recommendations", getUserRecommendations);
+router.get("/recommendations/product/:productId", getSimilarProducts);
 
 export default router;
