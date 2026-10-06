@@ -56,7 +56,17 @@ import {
 import {
   getUserRecommendations,
   getSimilarProducts,
+  getFrequentlyBoughtTogether,
 } from "../controllers/recommendationController.js";
+import {
+  getSecurityAlerts,
+  getAuditLogs,
+  analyzeActivity,
+} from "../controllers/intrusionDetectionController.js";
+import {
+  getInventoryDemandForecast,
+  getProductDemandForecast,
+} from "../controllers/inventoryForecastController.js";
 import { decryptPassword } from "../utils/AES.js";
 import db from "../database/db.js";
 
@@ -144,8 +154,18 @@ router.get("/orders/invoice/:created_at", authMiddleware, downloadInvoice);
 //================= Mobile Login =================
 router.post("/log-fraud", logFraudAttempt);
 
-// ================= AI/ML RECOMMENDATIONS =================
+// ================= 1. AI/ML RECOMMENDATIONS =================
 router.get("/recommendations", getUserRecommendations);
 router.get("/recommendations/product/:productId", getSimilarProducts);
+router.post("/recommendations/frequently-bought-together", getFrequentlyBoughtTogether);
+
+// ================= 2. AI/ML DATABASE INTRUSION DETECTION =================
+router.get("/security/alerts", authMiddleware, isAdmin, getSecurityAlerts);
+router.get("/security/audit-logs", authMiddleware, isAdmin, getAuditLogs);
+router.post("/security/analyze-activity", analyzeActivity);
+
+// ================= 3. AI/ML INVENTORY & DEMAND FORECASTING =================
+router.get("/inventory/forecast", authMiddleware, isAdmin, getInventoryDemandForecast);
+router.get("/inventory/forecast/:productId", authMiddleware, isAdmin, getProductDemandForecast);
 
 export default router;

@@ -6,17 +6,19 @@ from pydantic import BaseModel, Field
 import uvicorn
 from dotenv import load_dotenv
 
-from src.recommender import RecommendationEngine
+from database_intrusion_detection.src.detector import DatabaseIntrusionDetector
+from product_recommendation.src.recommender import ProductRecommender
+from inventory_demand_forecasting.src.forecaster import DemandForecaster
 
 load_dotenv()
 
 app = FastAPI(
-    title="StoreProject Recommendation API",
-    description="AI/ML Microservice for e-commerce personalized and content-based recommendations",
-    version="1.0.0"
+    title="StoreProject AI/ML Service Hub",
+    description="Microservice providing Database Intrusion Detection, Product Recommendations, and Inventory Demand Forecasting",
+    version="2.0.0"
 )
 
-# Enable CORS for communication with Node.js and frontend
+# Enable CORS for communication with Node.js and client apps
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,10 +27,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Recommendation Engine
-engine = RecommendationEngine(model_dir="model")
+# Instantiate Module Engines
+intrusion_detector = DatabaseIntrusionDetector()
+product_recommender = ProductRecommender()
+demand_forecaster = DemandForecaster()
 
-# Request / Response Schemas
+# =============================================================================
+# 1. HEALTH CHECK
+# =============================================================================
+@app.get("/health")
+def health_check():
+    return {
+        "status": "online",
+        "service": "StoreProject-AIML-Service-Hub",
+        "modules": [
+            "database_intrusion_detection",
+            "product_recommendation",
+            "inventory_demand_forecasting"
+        ],
+        "version": "2.0.0"
+    }
+
+# =============================================================================
+# 2. DATABASE INTRUSION DETECTION ENDPOINTS
+# =============================================================================
+class DatabaseAuditLogEntry(BaseModel):
+    user_id: Optional[str] = "Anonymous"
+    operation_type: Optional[str] = "SELECT"
+    table_name: Optional[str] = ""
+    records_accessed: Optional[int] = 0
+    query_text: Optional[str] = ""
+    failed_login_attempts: Optional[int] = 0
+    ip_address: Optional[str] = ""
+
+class IntrusionTrainRequest(BaseModel):
+    logs: List[DatabaseAuditLogEntry]
+
+@app.post("/intrusion-detection/analyze")
+def analyze_database_activity(log: DatabaseAuditLogEntry):
+    """
+    Analyzes a database activity log for anomalous intrusion behavior.
+    """
+    try:
+        result = intrusion_detector.detect_anomaly(log.model_dump())
+        return {"success": True, "analysis": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/intrusion-detection/train")
+def train_intrusion_model(payload: IntrusionTrainRequest):
+    """
+    Trains the intrusion detection model on historical audit logs.
+    """
+    try:
+        result = intrusion_detector.train([l.model_dump() for l in payload.logs])
+        return {"success": True, "training_result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# 3. PRODUCT RECOMMENDATION ENDPOINTS
+# =============================================================================
 class ProductItem(BaseModel):
     id: int
     name: str
@@ -41,88 +100,85 @@ class InteractionItem(BaseModel):
     product_id: int
     quantity: Optional[int] = 1
 
-class UserRecommendationRequest(BaseModel):
+class UserRecRequest(BaseModel):
     user_id: Optional[int] = None
     user_history: List[InteractionItem] = Field(default_factory=list)
     products: List[ProductItem] = Field(default_factory=list)
     top_n: Optional[int] = 8
 
-class ProductRecommendationRequest(BaseModel):
+class ProductRecRequest(BaseModel):
     product_id: int
     products: List[ProductItem] = Field(default_factory=list)
-    top_n: Optional[int] = 5
+    top_n: Optional[int] = 4
 
-class TrainRequest(BaseModel):
-    products: List[ProductItem]
-
-@app.get("/health")
-def health_check():
-    """Health check endpoint for Node.js backend monitoring."""
-    return {
-        "status": "online",
-        "service": "StoreProject-AIML-Recommendation-Engine",
-        "version": "1.0.0"
-    }
+class FrequentlyBoughtTogetherRequest(BaseModel):
+    product_ids: List[int] = Field(default_factory=list)
+    products: List[ProductItem] = Field(default_factory=list)
+    top_n: Optional[int] = 3
 
 @app.post("/recommend/user")
-def recommend_for_user(payload: UserRecommendationRequest):
-    """
-    Generate personalized recommendations for a user given their shopping history and product catalog.
-    """
+def recommend_for_user(payload: UserRecRequest):
     try:
-        products_dict = [p.model_dump() for p in payload.products]
-        history_dict = [h.model_dump() for h in payload.user_history]
-        
-        recommendations = engine.get_user_recommendations(
+        recs = product_recommender.recommend_for_user(
             user_id=payload.user_id,
-            user_history=history_dict,
-            all_products=products_dict,
+            user_history=[h.model_dump() for h in payload.user_history],
+            catalog=[p.model_dump() for p in payload.products],
             top_n=payload.top_n
         )
-        return {
-            "success": True,
-            "user_id": payload.user_id,
-            "count": len(recommendations),
-            "recommendations": recommendations
-        }
+        return {"success": True, "recommendations": recs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/recommend/product")
-def recommend_similar_products(payload: ProductRecommendationRequest):
-    """
-    Generate similar/related product recommendations based on content similarity.
-    """
+def recommend_similar_products(payload: ProductRecRequest):
     try:
-        products_dict = [p.model_dump() for p in payload.products]
-        engine.fit_content_model(products_dict)
-        
-        similar_items = engine.get_similar_products(
+        similar = product_recommender.recommend_similar_products(
             product_id=payload.product_id,
+            catalog=[p.model_dump() for p in payload.products],
             top_n=payload.top_n
         )
-        return {
-            "success": True,
-            "product_id": payload.product_id,
-            "count": len(similar_items),
-            "recommendations": similar_items
-        }
+        return {"success": True, "recommendations": similar}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/train")
-def train_model(payload: TrainRequest):
-    """
-    Triggers re-fitting and saving of the recommendation model with the latest product catalog.
-    """
+@app.post("/recommend/frequently-bought-together")
+def recommend_frequently_bought_together(payload: FrequentlyBoughtTogetherRequest):
     try:
-        products_dict = [p.model_dump() for p in payload.products]
-        engine.fit_content_model(products_dict)
-        engine.save_model()
-        return {
-            "success": True,
-            "message": f"Successfully trained and persisted model on {len(payload.products)} products."
-        }
+        bundles = product_recommender.recommend_frequently_bought_together(
+            product_ids=payload.product_ids,
+            catalog=[p.model_dump() for p in payload.products],
+            top_n=payload.top_n
+        )
+        return {"success": True, "recommendations": bundles}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# 4. INVENTORY & DEMAND FORECASTING ENDPOINTS
+# =============================================================================
+class HistoricalSaleRecord(BaseModel):
+    product_id: int
+    quantity: int
+    created_at: Optional[str] = None
+
+class ForecastRequest(BaseModel):
+    product_id: int
+    product_name: str
+    current_stock: int
+    historical_sales: List[HistoricalSaleRecord] = Field(default_factory=list)
+    horizon_days: Optional[int] = 30
+
+@app.post("/inventory/forecast")
+def forecast_demand(payload: ForecastRequest):
+    try:
+        forecast = demand_forecaster.forecast_product_demand(
+            product_id=payload.product_id,
+            product_name=payload.product_name,
+            current_stock=payload.current_stock,
+            historical_sales=[s.model_dump() for s in payload.historical_sales],
+            horizon_days=payload.horizon_days
+        )
+        return {"success": True, "forecast": forecast}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
