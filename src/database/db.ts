@@ -97,6 +97,33 @@ export async function initDB() {
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
   );
   `);
+
+  // DATABASE AUDIT LOGS (For AI Intrusion Detection)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS database_audit_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(100),
+      operation_type VARCHAR(50),
+      table_name VARCHAR(100),
+      records_accessed INT DEFAULT 0,
+      query_text TEXT,
+      failed_login_attempts INT DEFAULT 0,
+      ip_address VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // SECURITY ALERTS (Anomalies detected by AI)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS security_alerts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(100),
+      anomaly_score FLOAT,
+      status VARCHAR(50) DEFAULT 'ANOMALOUS',
+      details TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 export default db;

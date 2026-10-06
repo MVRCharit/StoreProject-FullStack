@@ -3,6 +3,7 @@ import { AuthRequest } from "../middleware/authMiddleware.js";
 import {
   getPersonalizedRecommendations,
   getSimilarProductRecommendations,
+  getFrequentlyBoughtTogetherRecommendations,
 } from "../services/recommendationService.js";
 
 /**
@@ -54,6 +55,34 @@ export const getSimilarProducts = async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch similar product recommendations",
+    });
+  }
+};
+
+/**
+ * Controller to get Frequently Bought Together products (Apriori / Association Rule Mining).
+ * Route: POST /recommendations/frequently-bought-together
+ * Body: { product_ids: [1, 2], limit: 3 }
+ */
+export const getFrequentlyBoughtTogether = async (req: Request, res: Response) => {
+  try {
+    const productIds: number[] = Array.isArray(req.body.product_ids)
+      ? req.body.product_ids.map(Number).filter((n: number) => !isNaN(n))
+      : [];
+
+    const limit = Number(req.body.limit) || 3;
+    const recommendations = await getFrequentlyBoughtTogetherRecommendations(productIds, limit);
+
+    return res.status(200).json({
+      success: true,
+      count: recommendations.length,
+      recommendations,
+    });
+  } catch (error) {
+    console.error("[RecommendationController] Error fetching bundle recommendations:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch frequently bought together recommendations",
     });
   }
 };

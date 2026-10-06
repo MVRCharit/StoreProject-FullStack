@@ -4,7 +4,8 @@ const ML_SERVICE_URL = (typeof process !== "undefined" && process.env?.ML_SERVIC
 
 interface RecommendationItem {
   product_id: number;
-  score: number;
+  score?: number;
+  confidence?: number;
   reason?: string;
 }
 
@@ -58,7 +59,6 @@ export async function getPersonalizedRecommendations(userId?: number, topN: numb
   }
 
   try {
-    // API Call to Python AI/ML Service
     const response = await fetch(`${ML_SERVICE_URL}/recommend/user`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -77,7 +77,6 @@ export async function getPersonalizedRecommendations(userId?: number, topN: numb
     const data: any = await response.json();
     const recommendations: RecommendationItem[] = data.recommendations || [];
 
-    // Map recommendation IDs to full product records
     const productMap = new Map<number, ProductRecord>(allProducts.map((p) => [p.id, p]));
     const result = recommendations
       .filter((rec) => productMap.has(rec.product_id))
@@ -93,10 +92,9 @@ export async function getPersonalizedRecommendations(userId?: number, topN: numb
     return result.length > 0 ? result : allProducts.slice(0, topN);
   } catch (error) {
     console.warn(
-      "[RecommendationService] Python AI/ML service unreachable or returned error. Falling back to default catalog:",
+      "[RecommendationService] Python AI/ML service fallback for user recommendations:",
       (error as Error).message
     );
-    // Graceful fallback to approved products
     return allProducts.slice(0, topN);
   }
 }
@@ -147,5 +145,56 @@ export async function getSimilarProductRecommendations(productId: number, topN: 
       (error as Error).message
     );
     return allProducts.filter((p) => p.id !== productId).slice(0, topN);
+  }
+}
+
+/**
+ * Fetch Frequently Bought Together product recommendations (Apriori / Association Rules).
+ */
+export async function getFrequentlyBoughtTogetherRecommendations(productIds: number[], topN: number = 3) {
+  const allProducts = await getApprovedProducts();
+  if (!allProducts || allProducts.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(`${ML_SERVICE_URL}/recommend/frequently-bought-together`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        product_ids: productIds,
+        products: allProducts,
+        top_n: topN,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI/ML Service returned status ${response.status}`);
+    }
+
+    const data: any = await response.json();
+    const recommendations: RecommendationItem[] = data.recommendations || [];
+
+    const productMap = new Map<number, ProductRecord>(allProducts.map((p) => [p.id, p]));
+    const result = recommendations
+      .filter((rec) => productMap.has(rec.product_id))
+      .map((rec) => {
+        const product = productMap.get(rec.product_id)!;
+        return {
+          ...product,
+          recommendation_score: rec.confidence || rec.score || 0.85,
+          recommendation_reason: rec.reason || "Frequently bought together",
+        };
+      });
+
+    return result.length > 0
+      ? result
+      : allProducts.filter((p) => !productIds.includes(p.id)).slice(0, topN);
+  } catch (error) {
+    console.warn(
+      "[RecommendationService] Python AI/ML service fallback for frequently bought together:",
+      (error as Error).message
+    );
+    return allProducts.filter((p) => !productIds.includes(p.id)).slice(0, topN);
   }
 }
